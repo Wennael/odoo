@@ -4306,7 +4306,7 @@ msgid ""
 "\n"
 msgstr ""
 "\n"
-"Графік перегляду веб-ганта OpenERP.\n"
+"Перегляд діаграми Ганта OpenERP.\n"
 "=============================\n"
 "\n"
 
@@ -8953,7 +8953,7 @@ msgstr ""
 #. module: base
 #: model:ir.module.module,shortdesc:base.module_analytic
 msgid "Analytic Accounting"
-msgstr "Аналітичний облік"
+msgstr "Аналітичний бухоблік"
 
 #. module: base
 #: model:ir.module.module,summary:base.module_mrp_account
