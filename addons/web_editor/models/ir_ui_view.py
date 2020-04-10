@@ -70,6 +70,7 @@ class IrUiView(models.Model):
         xpath = etree.Element('xpath', expr="//*[hasclass('oe_structure')][@id='{}']".format(el.get('id')), position="replace")
         arch.append(xpath)
         structure = etree.Element(el.tag, attrib=el.attrib)
+        structure.text = el.text
         xpath.append(structure)
         for child in el.iterchildren(tag=etree.Element):
             structure.append(copy.deepcopy(child))
@@ -160,6 +161,10 @@ class IrUiView(models.Model):
         out.tail = el.tail
         return out
 
+    @api.model
+    def _set_noupdate(self):
+        self.sudo().mapped('model_data_id').write({'noupdate': True})
+
     @api.multi
     def save(self, value, xpath=None):
         """ Update a view section. The view section may embed fields to write
@@ -196,16 +201,12 @@ class IrUiView(models.Model):
         new_arch = self.replace_arch_section(xpath, arch_section)
         old_arch = etree.fromstring(self.arch.encode('utf-8'))
         if not self._are_archs_equal(old_arch, new_arch):
-            self.sudo().model_data_id.write({'noupdate': True}) # TODO check if we remove this
+            self._set_noupdate()
             self.write({'arch': self._pretty_arch(new_arch)})
 
     @api.model
     def _view_get_inherited_children(self, view, options):
-        extensions = view.inherit_children_ids
-        if not options:
-            # only active children
-            extensions = extensions.filtered(lambda view: view.active)
-        return extensions
+        return view.inherit_children_ids
 
     @api.model
     def _view_obj(self, view_id):
@@ -252,6 +253,9 @@ class IrUiView(models.Model):
             if called_view and called_view not in views_to_return:
                 views_to_return += self._views_get(called_view, options=options, bundles=bundles)
 
+        if not options:
+            return views_to_return
+
         extensions = self._view_get_inherited_children(view, options)
 
         # Keep options in a deterministic order regardless of their applicability
@@ -269,5 +273,6 @@ class IrUiView(models.Model):
             ``bundles=True`` returns also the asset bundles
         """
         user_groups = set(self.env.user.groups_id)
-        views = self.with_context(active_test=False)._views_get(key, bundles=bundles)
+        View = self.with_context(active_test=False, lang=None)
+        views = View._views_get(key, bundles=bundles)
         return views.filtered(lambda v: not v.groups_id or len(user_groups.intersection(v.groups_id)))

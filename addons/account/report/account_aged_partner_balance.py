@@ -28,7 +28,7 @@ class ReportAgedPartnerBalance(models.AbstractModel):
         ctx = self._context
         periods = {}
         date_from = fields.Date.from_string(date_from)
-        start = date_from - relativedelta(days=1)
+        start = date_from
         for i in range(5)[::-1]:
             stop = start - relativedelta(days=period_length)
             period_name = str((5-(i+1)) * period_length + 1) + '-' + str((5-i) * period_length)
@@ -52,16 +52,7 @@ class ReportAgedPartnerBalance(models.AbstractModel):
         move_state = ['draft', 'posted']
         if target_move == 'posted':
             move_state = ['posted']
-        arg_list = (tuple(move_state), tuple(account_type))
-        #build the reconciliation clause to see what partner needs to be printed
-        reconciliation_clause = '(l.reconciled IS FALSE)'
-        cr.execute('SELECT debit_move_id, credit_move_id FROM account_partial_reconcile where max_date > %s', (date_from,))
-        reconciled_after_date = []
-        for row in cr.fetchall():
-            reconciled_after_date += [row[0], row[1]]
-        if reconciled_after_date:
-            reconciliation_clause = '(l.reconciled IS FALSE OR l.id IN %s)'
-            arg_list += (tuple(reconciled_after_date),)
+        arg_list = (tuple(move_state), tuple(account_type), date_from, date_from,)
         if ctx.get('partner_ids'):
             partner_clause = 'AND (l.partner_id IN %s)'
             arg_list += (tuple(ctx['partner_ids'].ids),)
@@ -77,7 +68,15 @@ class ReportAgedPartnerBalance(models.AbstractModel):
                 AND (l.move_id = am.id)
                 AND (am.state IN %s)
                 AND (account_account.internal_type IN %s)
-                AND ''' + reconciliation_clause + partner_clause + '''
+                AND (
+                        l.reconciled IS FALSE
+                        OR l.id IN(
+                            SELECT credit_move_id FROM account_partial_reconcile where max_date > %s
+                            UNION ALL
+                            SELECT debit_move_id FROM account_partial_reconcile where max_date > %s
+                        )
+                    )
+                    ''' + partner_clause + '''
                 AND (l.date <= %s)
                 AND l.company_id IN %s
             ORDER BY UPPER(res_partner.name)'''
@@ -142,6 +141,7 @@ class ReportAgedPartnerBalance(models.AbstractModel):
 
                 if not self.env.user.company_id.currency_id.is_zero(line_amount):
                     partners_amount[partner_id] += line_amount
+                    lines.setdefault(partner_id, [])
                     lines[partner_id].append({
                         'line': line,
                         'amount': line_amount,
@@ -179,6 +179,7 @@ class ReportAgedPartnerBalance(models.AbstractModel):
                     line_amount -= partial_line.company_id.currency_id._convert(partial_line.amount, user_currency, user_company, date_from)
             if not self.env.user.company_id.currency_id.is_zero(line_amount):
                 undue_amounts[partner_id] += line_amount
+                lines.setdefault(partner_id, [])
                 lines[partner_id].append({
                     'line': line,
                     'amount': line_amount,
@@ -213,7 +214,8 @@ class ReportAgedPartnerBalance(models.AbstractModel):
             total[(i + 1)] += values['total']
             values['partner_id'] = partner['partner_id']
             if partner['partner_id']:
-                browsed_partner = self.env['res.partner'].browse(partner['partner_id'])
+                #browse the partner name and trust field in sudo, as we may not have full access to the record (but we still have to see it in the report)
+                browsed_partner = self.env['res.partner'].sudo().browse(partner['partner_id'])
                 values['name'] = browsed_partner.name and len(browsed_partner.name) >= 45 and browsed_partner.name[0:40] + '...' or browsed_partner.name
                 values['trust'] = browsed_partner.trust
             else:
